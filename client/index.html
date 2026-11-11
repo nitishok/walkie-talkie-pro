@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f2f5ef" />
+    <meta name="description" content="A push-to-talk room for your road trip crew." />
+    <title>WalkieTalkiePro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/app.css" />
+    <link rel="stylesheet" href="/runtime.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="WalkieTalkiePro home">
+          <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 4.5 17.5 3l2.2 15.3-10.5 1.5L7 4.5Z"/><path d="M10.2 7.8h5.2M10.7 11.2h4.3M11.2 14.6h3.1"/></svg></span>
+          <span>WalkieTalkiePro</span>
+        </a>
+        <div class="topbar-actions">
+          <div class="theme-picker" id="themePicker" hidden>
+            <button class="theme-picker-trigger" id="themeToggle" type="button" aria-label="Choose room theme" aria-haspopup="true" aria-expanded="false" aria-controls="themeMenu">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1.1a2 2 0 0 0 1.4-3.4 1.8 1.8 0 0 1 1.3-3.1H18a3 3 0 0 0 3-3c0-4.7-4-8.5-9-8.5Z"/><path d="M7.5 11.2h.01M10 7.4h.01m4.4.4h.01m2.6 4h.01"/></svg><span>Theme</span>
+            </button>
+            <div class="theme-menu" id="themeMenu" role="radiogroup" aria-label="Room color theme" hidden>
+              <button class="theme-option" type="button" role="radio" aria-checked="false" data-theme="roadie"><span class="theme-swatch swatch-roadie"></span><span>Roadie Green</span><span class="theme-check" aria-hidden="true">✓</span></button>
+              <button class="theme-option" type="button" role="radio" aria-checked="false" data-theme="sunset"><span class="theme-swatch swatch-sunset"></span><span>Road Trip Sunset</span><span class="theme-check" aria-hidden="true">✓</span></button>
+              <button class="theme-option" type="button" role="radio" aria-checked="false" data-theme="gray"><span class="theme-swatch swatch-gray"></span><span>Gray</span><span class="theme-check" aria-hidden="true">✓</span></button>
+              <button class="theme-option" type="button" role="radio" aria-checked="false" data-theme="purple"><span class="theme-swatch swatch-purple"></span><span>Purple</span><span class="theme-check" aria-hidden="true">✓</span></button>
+              <button class="theme-option" type="button" role="radio" aria-checked="false" data-theme="teal"><span class="theme-swatch swatch-teal"></span><span>Teal</span><span class="theme-check" aria-hidden="true">✓</span></button>
+              <button class="theme-option" type="button" role="radio" aria-checked="false" data-theme="cherry"><span class="theme-swatch swatch-cherry"></span><span>Cherry</span><span class="theme-check" aria-hidden="true">✓</span></button>
+              <button class="theme-option" type="button" role="radio" aria-checked="false" data-theme="midnight"><span class="theme-swatch swatch-midnight"></span><span>Midnight Radio (Dark)</span><span class="theme-check" aria-hidden="true">✓</span></button>
+              <button class="theme-option" type="button" role="radio" aria-checked="false" data-theme="highway"><span class="theme-swatch swatch-highway"></span><span>Highway Night (Dark)</span><span class="theme-check" aria-hidden="true">✓</span></button>
+              <button class="theme-option" type="button" role="radio" aria-checked="false" data-theme="black"><span class="theme-swatch swatch-black"></span><span>Black (Dark)</span><span class="theme-check" aria-hidden="true">✓</span></button>
+              <button class="theme-option" type="button" role="radio" aria-checked="false" data-theme="maroon"><span class="theme-swatch swatch-maroon"></span><span>Maroon (Dark)</span><span class="theme-check" aria-hidden="true">✓</span></button>
+            </div>
+          </div>
+          <div class="connection-pill" id="connectionPill"><span class="connection-dot"></span><span id="connectionLabel">READY</span></div>
+        </div>
+      </header>
+
+      <section class="welcome-view" id="welcomeView" aria-labelledby="welcomeTitle" hidden>
+        <div class="welcome-copy">
+          <span class="eyebrow">YOUR CREW, ON THE SAME FREQUENCY</span>
+          <h1 id="welcomeTitle">Talk along<br />the way.</h1>
+          <p>Make a room, share the invite, and stay connected!</p>
+        </div>
+        <div class="form-card">
+          <label for="displayNameInput">Your name</label>
+          <input id="displayNameInput" autocomplete="nickname" maxlength="24" placeholder="What should your crew call you?" />
+          <div class="form-divider"><span>START A ROOM</span></div>
+          <label for="roomNameInput">Room name <span class="optional">OPTIONAL</span></label>
+          <input id="roomNameInput" maxlength="40" placeholder="Coastline run" />
+          <button class="primary-action" id="createRoomButton"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>Create a room</button>
+          <div class="form-divider"><span>OR JOIN YOUR CREW</span></div>
+          <label for="roomCodeInput">Invite code</label>
+          <div class="join-row"><input id="roomCodeInput" autocapitalize="characters" autocomplete="off" placeholder="AB12CD34" /><button class="join-action" id="joinRoomButton" aria-label="Join room"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11m-4-4 4 4-4 4"/></svg></button></div>
+          <p class="form-error" id="welcomeError" role="alert"></p>
+        </div>
+        <p class="guest-note"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 14 4v3.8c0 3.3-2.2 5.5-6 6.7-3.8-1.2-6-3.4-6-6.7V4l6-2.5Z"/><path d="m5.5 8 1.7 1.7L10.8 6"/></svg>No account needed. Anyone with your invite can join.</p>
+      </section>
+
+      <section class="room-view" id="roomView" aria-labelledby="roomTitle" hidden>
+        <div class="talk-panel">
+          <div class="transmit-caption" id="transmitCaption">CHANNEL IS CLEAR</div>
+          <button class="ptt-button" id="pttButton" aria-pressed="false" aria-describedby="pttHint" disabled>
+            <span class="ptt-ring ring-one"></span><span class="ptt-ring ring-two"></span>
+            <span class="ptt-core"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 20.5a4.5 4.5 0 0 0 4.5-4.5V9a4.5 4.5 0 0 0-9 0v7a4.5 4.5 0 0 0 4.5 4.5Z"/><path d="M8.5 15.5a7.5 7.5 0 0 0 15 0M16 23v4m-4 0h8"/></svg><strong>HOLD TO TALK</strong></span>
+          </button>
+          <p id="pttHint" class="ptt-hint">Connecting your radio…</p>
+          <button class="microphone-retry" id="retryMicrophone" hidden>Allow microphone access</button>
+          <div class="live-message" id="liveMessage" aria-live="polite"></div>
+          <div class="radio-controls" aria-label="Radio controls">
+            <button class="radio-control" id="speakerToggle" aria-pressed="false"><span class="control-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path class="sound-wave" d="M16 9a5 5 0 0 1 0 6m2.5-8.5a8.5 8.5 0 0 1 0 11"/></svg></span><span id="speakerLabel">Speaker On</span></button>
+          </div>
+        </div>
+
+        <section class="quick-alert-panel" aria-labelledby="quickAlertsTitle">
+          <div class="quick-alert-heading"><div><span class="eyebrow">ONE-TAP CREW SIGNALS</span><h2 id="quickAlertsTitle">Quick alerts</h2></div><span class="alert-delivery-note">Shared with everyone</span></div>
+          <div class="quick-alert-grid">
+            <button class="quick-alert-button" type="button" data-alert-type="fuel"><span class="quick-alert-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 21V4.5A1.5 1.5 0 0 1 6.5 3h8A1.5 1.5 0 0 1 16 4.5V21M4 21h13M8 7h5v5H8zM16 8h1.2l2.3 2.5v6a1.5 1.5 0 0 1-3 0v-4"/></svg></span><span>Need fuel</span></button>
+            <button class="quick-alert-button" type="button" data-alert-type="stop"><span class="quick-alert-icon" aria-hidden="true">↗</span><span>Pull over</span></button>
+            <button class="quick-alert-button" type="button" data-alert-type="hazard"><span class="quick-alert-icon" aria-hidden="true">!</span><span>Hazard ahead</span></button>
+            <button class="quick-alert-button" type="button" data-alert-type="hungry"><span class="quick-alert-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 13h16M5 13a7 7 0 0 0 14 0M7 17h10M7 4v5m3-5v5m-1.5-5v5m7-5v7"/></svg></span><span>I'm hungry</span></button>
+          </div>
+          <div class="room-alert-feed" id="roomAlertFeed" aria-live="polite" aria-label="Recent crew alerts" hidden></div>
+        </section>
+
+        <div class="room-details">
+          <div class="room-heading">
+            <div><div class="eyebrow room-eyebrow"><span class="live-dot"></span><span id="roomConnectionText">CONNECTED TO YOUR CREW</span></div><h1 id="roomTitle">Your room</h1></div>
+            <button class="invite-button" id="inviteTrigger"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 11v4.5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V11"/></svg><span>Invite</span></button>
+          </div>
+          <button class="room-code" id="roomCodeButton" aria-label="Copy room invite code"><span id="roomCodeLabel">ROOM CODE</span><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="6" width="9" height="11" rx="1.5"/><path d="M12.5 6V4.8A1.8 1.8 0 0 0 10.7 3h-5A1.8 1.8 0 0 0 4 4.8v7.4A1.8 1.8 0 0 0 5.7 14H7"/></svg></button>
+          <div class="channel-strip"><div class="channel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4.5 10v4m4-7v10m4-13v16m4-13v10m4-7v4"/></svg></div><div class="channel-copy"><span class="channel-label">SHARED CHANNEL</span></div><span class="channel-status" id="channelStatus">CLEAR</span></div>
+          <div class="crew-heading"><h2>Crew <span id="crewCount">1</span><small>/ 32</small></h2></div>
+          <ul class="crew-list" id="crewList" aria-label="Friends in the room"></ul>
+          <div class="room-footer"><span id="roomSafety">Keep your eyes on the road. Let your co-pilot handle the radio.</span><button id="endRoomButton">End room for everyone</button></div>
+        </div>
+        <div class="leave-room-row"><button class="leave-room-button" id="leaveRoomButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5m5 5H3"/><path d="M13 4h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/></svg><span>Leave Room</span></button></div>
+      </section>
+
+      <div id="audioMount" class="audio-mount" aria-hidden="true"></div>
+      <footer class="page-note" id="pageNote"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 14 4v3.8c0 3.3-2.2 5.5-6 6.7-3.8-1.2-6-3.4-6-6.7V4l6-2.5Z"/><path d="m5.5 8 1.7 1.7L10.8 6"/></svg><span>Keep your eyes on the road. Let your co-pilot handle the radio.</span></footer>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <dialog class="modal" id="inviteModal" aria-labelledby="inviteTitle"><form method="dialog" class="modal-panel"><button class="modal-close" aria-label="Close invite panel">×</button><span class="modal-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L8.5 7.5M12 4l3.5 3.5M5 12v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg></span><p class="eyebrow modal-eyebrow">BRING YOUR CREW ALONG</p><h2 id="inviteTitle">Invite to the room</h2><p class="modal-description">Share the link or code with your friends. Anyone with it can join.</p><div class="invite-code"><span id="inviteCodeLabel">ROOM-CODE</span><button id="copyInvite" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="6" width="9" height="11" rx="1.5"/><path d="M12.5 6V4.8A1.8 1.8 0 0 0 10.7 3h-5A1.8 1.8 0 0 0 4 4.8v7.4A1.8 1.8 0 0 0 5.7 14H7"/></svg>Copy code</button></div><button class="share-button" id="shareInvite" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 11v4.5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V11"/></svg>Share invite link</button></form></dialog>
+    <dialog class="modal" id="endRoomModal" aria-labelledby="endRoomTitle"><form method="dialog" class="modal-panel"><button class="modal-close" aria-label="Close confirmation">×</button><span class="modal-icon leave-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4m0 3h.01M10.3 3.8 2.7 17a1.5 1.5 0 0 0 1.3 2.2h16a1.5 1.5 0 0 0 1.3-2.2l-7.6-13.2a2 2 0 0 0-3.4 0Z"/></svg></span><h2 id="endRoomTitle">End this room for everyone?</h2><p class="modal-description">Everyone will be disconnected. The invite code will stop working.</p><div class="leave-actions"><button class="cancel-button" value="cancel">Keep room open</button><button class="confirm-end" id="confirmEndRoom" type="button">End room</button></div></form></dialog>
+  </body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "name": "roadie-radio",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n voice,api,web,https,cert -c green,cyan,blue,magenta,yellow \"npm:dev:voice\" \"npm:dev:api\" \"npm:dev:web\" \"npm:dev:secure\" \"npm:dev:cert\"",
+    "dev:voice": "livekit-server --dev --bind 0.0.0.0",
+    "dev:api": "node server.mjs",
+    "dev:web": "vite --host 0.0.0.0 --port 4173 --strictPort",
+    "dev:secure": "vite --config vite.secure.config.js --host 0.0.0.0 --port 4175 --strictPort",
+    "dev:cert": "node scripts/cert-server.mjs",
+    "setup:lan-cert": "node scripts/generate-lan-cert.mjs",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "livekit-client": "^2.23.0",
+    "livekit-server-sdk": "^2.19.3"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7",
+    "vite": "^8.3.7"
+  }
+}
