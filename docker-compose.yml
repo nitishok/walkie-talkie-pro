@@ -34,7 +34,7 @@ services:
     image: livekit/livekit-server:v1.13.11
     restart: unless-stopped
     environment:
-      LIVEKIT_KEYS: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in the VPS project environment}:${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in the VPS project environment}
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in the VPS project environment}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in the VPS project environment}"
       LIVEKIT_CONFIG: |
         port: 7880
         rtc:
