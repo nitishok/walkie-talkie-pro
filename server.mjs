@@ -16,6 +16,21 @@ const livekitApiKey = process.env.LIVEKIT_API_KEY || "devkey";
 const livekitApiSecret = process.env.LIVEKIT_API_SECRET || "secret";
 const appSessionSecret = process.env.APP_SESSION_SECRET || "roadie-radio-local-session-secret-change-before-deploy";
 const port = Number(process.env.API_PORT || 3000);
+const production = process.env.NODE_ENV === "production";
+if (production) {
+  const requiredSettings = ["LIVEKIT_URL", "LIVEKIT_API_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "APP_SESSION_SECRET"];
+  const missingSettings = requiredSettings.filter((name) => !process.env[name]);
+  if (missingSettings.length) throw new Error(`Missing production settings: ${missingSettings.join(", ")}`);
+  if (livekitApiKey === "devkey" || livekitApiSecret === "secret") {
+    throw new Error("Production cannot use LiveKit development credentials.");
+  }
+  if (appSessionSecret === "roadie-radio-local-session-secret-change-before-deploy" || appSessionSecret.length < 48) {
+    throw new Error("APP_SESSION_SECRET must be a unique value of at least 48 characters in production.");
+  }
+  if (!process.env.LIVEKIT_URL.startsWith("wss://")) {
+    throw new Error("LIVEKIT_URL must use wss:// in production.");
+  }
+}
 const roomCapacity = 32;
 const talkLeaseMs = 5000;
 const alertRetentionMs = 60 * 1000;
@@ -343,6 +358,7 @@ const server = createServer((req, res) => {
   });
 });
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Roadie API ready at http://127.0.0.1:${port}`);
+const host = process.env.API_HOST || "127.0.0.1";
+server.listen(port, host, () => {
+  console.log(`Roadie API ready at http://${host}:${port}`);
 });

@@ -1,0 +1,11 @@
+.git
+.openai
+.env
+.env.*
+!.env.example
+node_modules
+dist
+data
+certs
+*.log
+.DS_Store

@@ -24,3 +24,15 @@ Open [http://localhost:4173](http://localhost:4173) on the Mac. From a phone on 
 - Each member can choose a male or female spoken voice for the quick alerts they send. The choice is saved in that browser and travels with each alert.
 
 Installing the certificate adds trust for certificates signed by this Mac's local development CA. The CA's private key remains on the Mac. Remove the certificate profile from the phone when LAN development is done. The web app requires the page to remain open for reliable audio; background listening is not guaranteed on mobile browsers. Local development uses LiveKit's dev key only; deployment requires a public LiveKit server address and private API/session secrets.
+
+## Deploy to a Hostinger VPS
+
+The production Docker setup is in `docker-compose.yml`. It builds the web app and Node API, runs LiveKit, routes HTTPS with Caddy, and keeps room data and certificates in Docker volumes. The API rejects LiveKit's development credentials and the local session-secret fallback in production.
+
+1. Use Ubuntu 24.04 with Docker on the VPS.
+2. In Hostinger DNS, point `walkietalkiepro.in` and `rtc.walkietalkiepro.in` to the VPS IPv4 address with A records. Wait until both names resolve to that address before starting the web container so Caddy can issue HTTPS certificates.
+3. In the Hostinger VPS firewall, allow inbound TCP ports `80`, `443`, and `7881`; allow UDP ports `7882`, `3478`, and `50000-50100`. These carry web traffic, LiveKit signaling fallback, direct voice media, and TURN/UDP relay traffic.
+4. In Hostinger Docker Manager, create a Compose project from this GitHub repository and choose the root `docker-compose.yml`.
+5. Generate three secret values in a terminal with `openssl rand -hex 8`, `openssl rand -hex 32`, and `openssl rand -hex 32`, then paste the outputs into Docker Manager as `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `APP_SESSION_SECRET`, respectively. Keep the generated values private. Also set `APP_DOMAIN=walkietalkiepro.in` and `LIVEKIT_DOMAIN=rtc.walkietalkiepro.in`.
+
+The defaults in the Compose file use these two domain names. Leave ports `7880` and `3000` private to the Docker network; only Caddy and LiveKit's media ports need public access. After deployment, visit `https://walkietalkiepro.in`; verify voice by joining from two phones on different networks.

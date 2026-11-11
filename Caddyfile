@@ -1,0 +1,18 @@
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	@api path /api/*
+	handle @api {
+		reverse_proxy app:3000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+{$LIVEKIT_DOMAIN} {
+	reverse_proxy livekit:7880
+}

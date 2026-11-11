@@ -1,0 +1,77 @@
+services:
+  app:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      API_PORT: 3000
+      LIVEKIT_API_URL: http://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in the VPS project environment}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in the VPS project environment}
+      LIVEKIT_URL: wss://${LIVEKIT_DOMAIN:-rtc.walkietalkiepro.in}
+      APP_SESSION_SECRET: ${APP_SESSION_SECRET:?Set APP_SESSION_SECRET in the VPS project environment}
+    expose:
+      - "3000"
+    volumes:
+      - room-data:/app/data
+    depends_on:
+      - livekit
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    restart: unless-stopped
+    environment:
+      LIVEKIT_KEYS: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in the VPS project environment}:${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in the VPS project environment}
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: true
+        turn:
+          enabled: true
+          domain: ${LIVEKIT_DOMAIN:-rtc.walkietalkiepro.in}
+          udp_port: 3478
+          relay_range_start: 50000
+          relay_range_end: 50100
+    ports:
+      - "7881:7881/tcp"
+      - "7882:7882/udp"
+      - "3478:3478/udp"
+      - "50000-50100:50000-50100/udp"
+
+  web:
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-walkietalkiepro.in}
+      LIVEKIT_DOMAIN: ${LIVEKIT_DOMAIN:-rtc.walkietalkiepro.in}
+    ports:
+      - "80:80/tcp"
+      - "443:443/tcp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+      - livekit
+
+volumes:
+  room-data:
+  caddy-data:
+  caddy-config:
