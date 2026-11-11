@@ -39,6 +39,7 @@ function loadStore() {
 }
 
 const store = loadStore();
+const liveTranscripts = new Map();
 
 function saveStore() {
   const tempPath = `${storePath}.${process.pid}.tmp`;
@@ -65,9 +66,8 @@ function displayCode(code) {
 
 function newCode() {
   let code;
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   do {
-    code = Array.from({ length: 8 }, () => alphabet[randomInt(alphabet.length)]).join("");
+    code = randomInt(100_000_000).toString().padStart(8, "0");
   } while (store.rooms[code]);
   return code;
 }
@@ -163,6 +163,7 @@ async function expireTalkLock(room) {
   if (!room.talker || room.talker.expiresAt > Date.now()) return;
   const identity = room.talker.identity;
   room.talker = null;
+  liveTranscripts.delete(room.code);
   saveStore();
   try { await setCanPublish(room.code, identity, false); } catch { /* participant may have disconnected */ }
 }
@@ -171,6 +172,7 @@ function getTalkState(room) {
   if (room.talker && room.talker.expiresAt <= Date.now()) {
     const staleIdentity = room.talker.identity;
     room.talker = null;
+    liveTranscripts.delete(room.code);
     saveStore();
     void setCanPublish(room.code, staleIdentity, false).catch(() => {});
   }
@@ -204,7 +206,7 @@ async function handle(req, res) {
     catch (error) { room.ended = true; saveStore(); throw error; }
   }
 
-  const roomRoute = url.pathname.match(/^\/api\/rooms\/([^/]+)(?:\/(join|state|talk|alerts)(?:\/([^/]+))?)?$/);
+  const roomRoute = url.pathname.match(/^\/api\/rooms\/([^/]+)(?:\/(join|state|talk|transcript|alerts)(?:\/([^/]+))?)?$/);
   if (!roomRoute) return send(res, 404, { error: "Not found." });
   const code = normalizeCode(decodeURIComponent(roomRoute[1]));
   const action = roomRoute[2] || "";
@@ -224,7 +226,27 @@ async function handle(req, res) {
     if (!room) return send(res, 200, { ended: true });
     readSessionToken(req, code);
     await expireTalkLock(room);
-    return send(res, 200, { ended: room.ended, talker: getTalkState(room), alerts: getRoomAlerts(room) });
+    const talker = getTalkState(room);
+    const transcript = liveTranscripts.get(code);
+    const liveTranscript = transcript && talker?.identity === transcript.identity && Date.now() - transcript.updatedAt < 4000
+      ? transcript
+      : null;
+    if (!liveTranscript && transcript) liveTranscripts.delete(code);
+    return send(res, 200, { ended: room.ended, talker, liveTranscript, alerts: getRoomAlerts(room) });
+  }
+
+  if (req.method === "POST" && action === "transcript") {
+    const session = readSessionToken(req, code);
+    const activeRoom = requireRoom(code);
+    await expireTalkLock(activeRoom);
+    if (!activeRoom.talker || activeRoom.talker.identity !== session.identity) {
+      return send(res, 409, { error: "Only the current speaker can update the live transcript." });
+    }
+    const body = await readBody(req);
+    const text = String(body.text || "").replace(/\s+/g, " ").trim().slice(-220);
+    if (text) liveTranscripts.set(code, { identity: session.identity, text, updatedAt: Date.now() });
+    else liveTranscripts.delete(code);
+    return send(res, 200, { ok: true });
   }
 
   if (req.method === "POST" && action === "alerts") {
@@ -249,10 +271,12 @@ async function handle(req, res) {
     if (type === "transcript" ? !transcript : !Object.hasOwn(roomAlertTypes, type)) {
       throw Object.assign(new Error("Choose a valid room alert."), { status: 400 });
     }
+    const voice = body.voice === "male" ? "male" : "female";
     const alert = {
       id: randomUUID(),
       type,
       label: type === "transcript" ? transcript : roomAlertTypes[type],
+      ...(type !== "transcript" ? { voice } : {}),
       identity: session.identity,
       name: session.name,
       createdAt: new Date().toISOString(),
@@ -289,6 +313,7 @@ async function handle(req, res) {
     const session = readSessionToken(req, code);
     if (room?.talker?.identity === session.identity) {
       room.talker = null;
+      liveTranscripts.delete(code);
       saveStore();
       try { await setCanPublish(code, session.identity, false); } catch { /* participant may have disconnected */ }
     }
@@ -300,6 +325,7 @@ async function handle(req, res) {
     const activeRoom = requireRoom(code);
     activeRoom.ended = true;
     activeRoom.talker = null;
+    liveTranscripts.delete(code);
     activeRoom.endedAt = new Date().toISOString();
     saveStore();
     try { await roomService.deleteRoom(`roadie-${code}`); } catch { /* no LiveKit room may exist yet */ }

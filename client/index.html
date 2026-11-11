@@ -51,13 +51,20 @@
         <div class="form-card">
           <label for="displayNameInput">Your name</label>
           <input id="displayNameInput" autocomplete="nickname" maxlength="24" placeholder="What should your crew call you?" />
+          <div class="alert-voice-card">
+            <label class="alert-voice-title">Are you male or female?</label>
+            <div class="alert-voice-options" role="radiogroup" aria-label="Voice for your quick alerts">
+              <button class="alert-voice-option" type="button" role="radio" aria-checked="false" data-alert-voice="male">Male</button>
+              <button class="alert-voice-option" type="button" role="radio" aria-checked="false" data-alert-voice="female">Female</button>
+            </div>
+          </div>
           <div class="form-divider"><span>START A ROOM</span></div>
           <label for="roomNameInput">Room name <span class="optional">OPTIONAL</span></label>
           <input id="roomNameInput" maxlength="40" placeholder="Coastline run" />
           <button class="primary-action" id="createRoomButton"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>Create a room</button>
           <div class="form-divider"><span>OR JOIN YOUR CREW</span></div>
           <label for="roomCodeInput">Invite code</label>
-          <div class="join-row"><input id="roomCodeInput" autocapitalize="characters" autocomplete="off" placeholder="AB12CD34" /><button class="join-action" id="joinRoomButton" aria-label="Join room"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11m-4-4 4 4-4 4"/></svg></button></div>
+          <div class="join-row"><input id="roomCodeInput" inputmode="numeric" autocomplete="off" placeholder="12345678" /><button class="join-action" id="joinRoomButton" aria-label="Join room"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11m-4-4 4 4-4 4"/></svg></button></div>
           <p class="form-error" id="welcomeError" role="alert"></p>
         </div>
         <p class="guest-note"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 14 4v3.8c0 3.3-2.2 5.5-6 6.7-3.8-1.2-6-3.4-6-6.7V4l6-2.5Z"/><path d="m5.5 8 1.7 1.7L10.8 6"/></svg>No account needed. Anyone with your invite can join.</p>
@@ -66,10 +73,11 @@
       <section class="room-view" id="roomView" aria-labelledby="roomTitle" hidden>
         <div class="talk-panel">
           <div class="transmit-caption" id="transmitCaption">CHANNEL IS CLEAR</div>
-          <button class="ptt-button" id="pttButton" aria-pressed="false" aria-describedby="pttHint" disabled>
+          <button class="ptt-button" id="pttButton" aria-pressed="false" aria-disabled="true" aria-describedby="pttHint">
             <span class="ptt-ring ring-one"></span><span class="ptt-ring ring-two"></span>
             <span class="ptt-core"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 20.5a4.5 4.5 0 0 0 4.5-4.5V9a4.5 4.5 0 0 0-9 0v7a4.5 4.5 0 0 0 4.5 4.5Z"/><path d="M8.5 15.5a7.5 7.5 0 0 0 15 0M16 23v4m-4 0h8"/></svg><strong>HOLD TO TALK</strong></span>
           </button>
+          <div class="live-transcript" id="liveTranscript" aria-hidden="true" aria-label="Live transcript"></div>
           <p id="pttHint" class="ptt-hint">Connecting your radio…</p>
           <button class="microphone-retry" id="retryMicrophone" hidden>Allow microphone access</button>
           <div class="live-message" id="liveMessage" aria-live="polite"></div>

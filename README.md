@@ -21,5 +21,6 @@ Open [http://localhost:4173](http://localhost:4173) on the Mac. From a phone on 
 - Anyone with the invite can join. Any member can end the room for everyone.
 - A server-side talk lock allows one person to transmit at a time. Other guests see who has the channel.
 - The microphone is requested when a person enters a room. It stays muted until they hold Talk.
+- Each member can choose a male or female spoken voice for the quick alerts they send. The choice is saved in that browser and travels with each alert.
 
 Installing the certificate adds trust for certificates signed by this Mac's local development CA. The CA's private key remains on the Mac. Remove the certificate profile from the phone when LAN development is done. The web app requires the page to remain open for reliable audio; background listening is not guaranteed on mobile browsers. Local development uses LiveKit's dev key only; deployment requires a public LiveKit server address and private API/session secrets.

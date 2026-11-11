@@ -8,11 +8,13 @@ const roomCodeInput = $("#roomCodeInput");
 const welcomeError = $("#welcomeError");
 const pttButton = $("#pttButton");
 const transmitCaption = $("#transmitCaption");
+const liveTranscript = $("#liveTranscript");
 const pttHint = $("#pttHint");
 const liveMessage = $("#liveMessage");
 const inviteModal = $("#inviteModal");
 const endRoomModal = $("#endRoomModal");
 const toast = $("#toast");
+const alertVoiceButtons = [...document.querySelectorAll("[data-alert-voice]")];
 const themePicker = $("#themePicker");
 const themeToggle = $("#themeToggle");
 const themeMenu = $("#themeMenu");
@@ -51,6 +53,12 @@ let floorState = null;
 let speakerOn = true;
 let talkLockBusy = false;
 let transcriptionSession = null;
+let remoteTranscriptState = null;
+let pendingLiveTranscript = null;
+let liveTranscriptSendTimer = null;
+let liveTranscriptRequestPending = false;
+let lastLiveTranscriptSent = "";
+let selectedAlertVoice = localStorage.getItem("walkietalkie-alert-voice") === "male" ? "male" : "female";
 let currentRoomTheme = localStorage.getItem("walkietalkie-room-theme");
 if (!roomThemes.includes(currentRoomTheme)) currentRoomTheme = "roadie";
 let roomAlerts = [];
@@ -61,10 +69,18 @@ let alertAudioContext = null;
 let alertAudioLoadPromise = null;
 const alertAudioBuffers = new Map();
 const alertAudioFiles = {
-  fuel: "/alerts/fuel.wav",
-  stop: "/alerts/stop.wav",
-  hazard: "/alerts/hazard.wav",
-  hungry: "/alerts/hungry.wav",
+  male: {
+    fuel: "/alerts/fuel-male.wav?v=3",
+    stop: "/alerts/stop-male.wav?v=3",
+    hazard: "/alerts/hazard-male.wav?v=3",
+    hungry: "/alerts/hungry-male.wav?v=3",
+  },
+  female: {
+    fuel: "/alerts/fuel-female.wav",
+    stop: "/alerts/stop-female.wav",
+    hazard: "/alerts/hazard-female.wav",
+    hungry: "/alerts/hungry-female.wav",
+  },
 };
 let alertExpiryTimers = new Map();
 
@@ -101,6 +117,55 @@ function setConnection(state, label) {
   $("#connectionLabel").textContent = label;
 }
 
+function setPttUnavailable(unavailable) {
+  pttButton.disabled = false;
+  pttButton.setAttribute("aria-disabled", String(unavailable));
+}
+
+function updateLiveTranscript(text) {
+  liveTranscript.textContent = String(text || "").trim();
+  const visible = Boolean(liveTranscript.textContent);
+  liveTranscript.classList.toggle("is-visible", visible);
+  liveTranscript.setAttribute("aria-hidden", String(!visible));
+}
+
+function clearLiveTranscript() {
+  if (!liveTranscript) return;
+  liveTranscript.textContent = "";
+  liveTranscript.classList.remove("is-visible");
+  liveTranscript.setAttribute("aria-hidden", "true");
+}
+
+function queueLiveTranscript(text, session) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim().slice(-220);
+  if (!normalized || !transmitHeld || !transmitGranted) return;
+  pendingLiveTranscript = { text: normalized, code: session.code, token: session.token };
+  if (liveTranscriptSendTimer || liveTranscriptRequestPending) return;
+  liveTranscriptSendTimer = setTimeout(() => { void flushLiveTranscript(); }, 180);
+}
+
+async function flushLiveTranscript() {
+  liveTranscriptSendTimer = null;
+  const update = pendingLiveTranscript;
+  pendingLiveTranscript = null;
+  if (!update || update.text === lastLiveTranscriptSent || liveTranscriptRequestPending) return;
+  liveTranscriptRequestPending = true;
+  lastLiveTranscriptSent = update.text;
+  try {
+    await request(`/api/rooms/${encodeURIComponent(update.code)}/transcript`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${update.token}` },
+      body: JSON.stringify({ text: update.text }),
+    });
+  } catch { /* Live text is best effort; the audio and final alert remain separate. */ }
+  finally {
+    liveTranscriptRequestPending = false;
+    if (pendingLiveTranscript && !liveTranscriptSendTimer) {
+      liveTranscriptSendTimer = setTimeout(() => { void flushLiveTranscript(); }, 80);
+    }
+  }
+}
+
 function formatCode(code) {
   return String(code || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
 }
@@ -115,6 +180,16 @@ function roomLink(code) {
 
 function setWelcomeError(message = "") {
   welcomeError.textContent = message;
+}
+
+function setAlertVoice(voice, { persist = true } = {}) {
+  selectedAlertVoice = voice === "male" ? "male" : "female";
+  if (persist) localStorage.setItem("walkietalkie-alert-voice", selectedAlertVoice);
+  alertVoiceButtons.forEach((button) => {
+    const selected = button.dataset.alertVoice === selectedAlertVoice;
+    button.setAttribute("aria-checked", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
 }
 
 function currentName() {
@@ -133,6 +208,8 @@ function showWelcome(message = "") {
   themeToggle.setAttribute("aria-expanded", "false");
   delete document.documentElement.dataset.roomTheme;
   roomAlerts = [];
+  remoteTranscriptState = null;
+  clearLiveTranscript();
   seenAlertIds.clear();
   alertsInitialized = false;
   renderedAlertsSignature = "";
@@ -162,6 +239,8 @@ function showRoomShell(roomInfo) {
   $("#crewList").replaceChildren();
   $("#crewCount").textContent = "1";
   roomAlerts = [];
+  remoteTranscriptState = null;
+  clearLiveTranscript();
   seenAlertIds.clear();
   alertsInitialized = false;
   renderedAlertsSignature = "";
@@ -232,7 +311,7 @@ async function resumeLastRoom(savedRoom) {
     displayCode: formatCode(code),
     name: String(savedRoom.name || "Your room"),
   });
-  pttButton.disabled = true;
+  setPttUnavailable(true);
   setConnection("connecting", "RECONNECTING");
   pttHint.textContent = "Rejoining your last room…";
 
@@ -285,7 +364,7 @@ function installRoomEvents(room) {
     if (liveRoom !== room || suppressReconnect) return;
     roomStateHealthy = false;
     setConnection("connecting", "RECONNECTING");
-    pttButton.disabled = true;
+    setPttUnavailable(true);
     pttHint.textContent = "Connection interrupted. Reconnecting…";
     void releaseTalk(false);
   };
@@ -297,7 +376,7 @@ function installRoomEvents(room) {
     } else if (state === "connected" && liveRoom === room && !reconnectLoopPromise) {
       if (roomStateHealthy) {
         setConnection("connected", "CONNECTED");
-        pttButton.disabled = !localMic;
+        setPttUnavailable(!localMic);
         pttHint.textContent = localMic ? "Press and hold while you talk" : "Allow microphone access to talk";
       }
     }
@@ -306,14 +385,14 @@ function installRoomEvents(room) {
     if (liveRoom !== room || suppressReconnect) return;
     if (roomStateHealthy) {
       setConnection("connected", "CONNECTED");
-      pttButton.disabled = !localMic;
+      setPttUnavailable(!localMic);
       pttHint.textContent = localMic ? "Press and hold while you talk" : "Allow microphone access to talk";
     }
     void refreshRoomState();
   });
   room.on(RoomEvent.Disconnected, () => {
     if (liveRoom !== room || suppressReconnect) return;
-    pttButton.disabled = true;
+    setPttUnavailable(true);
     setConnection("connecting", "RECONNECTING");
     pttHint.textContent = "Connection lost. Trying to rejoin…";
     void recoverRoomConnection(room);
@@ -331,15 +410,16 @@ async function prepareMicrophone() {
       });
     }
     await localMic.mute();
-    pttButton.disabled = !liveRoom || liveRoom.state !== "connected" || !roomStateHealthy;
-    pttHint.textContent = pttButton.disabled
+    const unavailable = !liveRoom || liveRoom.state !== "connected" || !roomStateHealthy;
+    setPttUnavailable(unavailable);
+    pttHint.textContent = unavailable
       ? "Reconnecting to your crew…"
       : "Press and hold while you talk";
     $("#retryMicrophone").hidden = true;
     return true;
   } catch (error) {
     localMic = null;
-    pttButton.disabled = true;
+    setPttUnavailable(true);
     pttHint.textContent = "Your radio is connected. Enable the mic to talk.";
     $("#retryMicrophone").hidden = false;
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
@@ -383,7 +463,7 @@ async function connectRoom(session, name, { recovering = false } = {}) {
     $("#roomConnectionText").textContent = "CONNECTED TO YOUR CREW";
     try { await room.startAudio(); } catch { /* playback can be resumed with the first user gesture */ }
     await prepareMicrophone();
-    if (recovering) pttButton.disabled = true;
+    if (recovering) setPttUnavailable(true);
     renderCrew();
     await refreshRoomState();
     if (currentRoom?.code !== session.room.code || liveRoom !== room) return;
@@ -393,7 +473,7 @@ async function connectRoom(session, name, { recovering = false } = {}) {
     if (liveRoom === room) liveRoom = null;
     try { await room.disconnect(false); } catch { /* already disconnected */ }
     if (recovering) throw error;
-    pttButton.disabled = true;
+    setPttUnavailable(true);
     setConnection("connecting", "RECONNECTING");
     pttHint.textContent = "Connection interrupted. Reconnecting…";
     void recoverRoomConnection(room);
@@ -428,7 +508,7 @@ async function recoverRoomConnection(failedRoom = liveRoom) {
   clearInterval(statePoll);
   statePoll = null;
   roomStateHealthy = false;
-  pttButton.disabled = true;
+  setPttUnavailable(true);
   setConnection("connecting", navigator.onLine ? "RECONNECTING" : "OFFLINE");
   pttHint.textContent = navigator.onLine
     ? "Connection lost. Rejoining automatically…"
@@ -473,11 +553,11 @@ async function recoverRoomConnection(failedRoom = liveRoom) {
         if (liveRoom?.state === "connected") {
         if (roomStateHealthy) {
             setConnection("connected", "CONNECTED");
-            pttButton.disabled = !localMic;
+            setPttUnavailable(!localMic);
             pttHint.textContent = localMic ? "Press and hold while you talk" : "Allow microphone access to talk";
           } else {
             setConnection("connecting", "RECONNECTING");
-            pttButton.disabled = true;
+            setPttUnavailable(true);
             pttHint.textContent = "Voice is back. Reconnecting to room controls…";
           }
           return;
@@ -562,12 +642,13 @@ async function refreshRoomState() {
     stateFailureCount = 0;
     roomStateHealthy = true;
     floorState = data.talker;
+    remoteTranscriptState = data.liveTranscript || null;
     updateRoomAlerts(data.alerts || []);
     updateFloorUI();
     renderCrew();
     if (liveRoom?.state === "connected" && !suppressReconnect) {
       setConnection("connected", "CONNECTED");
-      pttButton.disabled = !localMic;
+      setPttUnavailable(!localMic);
       pttHint.textContent = localMic ? "Press and hold while you talk" : "Allow microphone access to talk";
     }
     return true;
@@ -575,7 +656,7 @@ async function refreshRoomState() {
     if (currentRoom?.code !== roomCode) return false;
     if (error.message.includes("session expired")) {
       roomStateHealthy = false;
-      pttButton.disabled = true;
+      setPttUnavailable(true);
       setConnection("connecting", "RECONNECTING");
       pttHint.textContent = "Refreshing your room connection…";
       void recoverRoomConnection(liveRoom);
@@ -583,7 +664,7 @@ async function refreshRoomState() {
       stateFailureCount += 1;
       if (stateFailureCount >= 2) {
         roomStateHealthy = false;
-        pttButton.disabled = true;
+        setPttUnavailable(true);
         setConnection("connecting", navigator.onLine ? "RECONNECTING" : "OFFLINE");
         pttHint.textContent = navigator.onLine
           ? "Trying to reach your crew…"
@@ -646,14 +727,12 @@ function renderRoomAlerts() {
     copy.append(label, details);
     const isSender = alert.identity === liveRoom?.localParticipant.identity;
     item.append(copy);
-    if (!isSender && alert.type !== "transcript") {
-      const acknowledged = acknowledgements.includes(liveRoom?.localParticipant.identity);
+    const acknowledged = acknowledgements.includes(liveRoom?.localParticipant.identity);
+    if (!isSender && alert.type !== "transcript" && !acknowledged) {
       const ackButton = document.createElement("button");
       ackButton.className = "alert-ack-button";
       ackButton.type = "button";
-      ackButton.textContent = acknowledged ? "Got it" : "Acknowledge";
-      ackButton.disabled = acknowledged;
-      ackButton.setAttribute("aria-pressed", String(acknowledged));
+      ackButton.textContent = "Acknowledge";
       ackButton.addEventListener("click", () => { void acknowledgeAlert(alert.id); });
       item.append(ackButton);
     }
@@ -704,12 +783,15 @@ function preloadAlertAudio() {
   const context = ensureAlertAudioContext();
   if (!context) return Promise.resolve();
   if (alertAudioLoadPromise) return alertAudioLoadPromise;
-  alertAudioLoadPromise = Promise.all(Object.entries(alertAudioFiles).map(async ([type, path]) => {
-    const response = await fetch(path);
-    if (!response.ok) throw new Error("Alert audio could not be loaded.");
-    const buffer = await context.decodeAudioData(await response.arrayBuffer());
-    alertAudioBuffers.set(type, buffer);
-  })).catch(() => {
+  const assets = Object.entries(alertAudioFiles).flatMap(([voice, files]) =>
+    Object.entries(files).map(async ([type, path]) => {
+      const response = await fetch(path);
+      if (!response.ok) throw new Error("Alert audio could not be loaded.");
+      const buffer = await context.decodeAudioData(await response.arrayBuffer());
+      alertAudioBuffers.set(`${voice}:${type}`, buffer);
+    }),
+  );
+  alertAudioLoadPromise = Promise.all(assets).catch(() => {
     alertAudioLoadPromise = null;
   });
   return alertAudioLoadPromise;
@@ -719,8 +801,10 @@ async function playAlertVoice(alert) {
   if (!speakerOn) return;
   const context = ensureAlertAudioContext();
   if (!context) return;
-  if (!alertAudioBuffers.has(alert.type)) await preloadAlertAudio();
-  const buffer = alertAudioBuffers.get(alert.type);
+  const voice = alert.voice === "male" ? "male" : "female";
+  const bufferKey = `${voice}:${alert.type}`;
+  if (!alertAudioBuffers.has(bufferKey)) await preloadAlertAudio();
+  const buffer = alertAudioBuffers.get(bufferKey);
   if (buffer) {
     if (context.state === "suspended") {
       try { await context.resume(); } catch { /* iOS may need a user gesture first. */ }
@@ -754,7 +838,7 @@ async function sendQuickAlert(type) {
     await request(`/api/rooms/${currentRoom.code}/alerts`, {
       method: "POST",
       auth: true,
-      body: JSON.stringify({ type }),
+      body: JSON.stringify({ type, voice: selectedAlertVoice }),
     });
     notify("Alert sent to your crew.");
     await refreshRoomState();
@@ -781,6 +865,12 @@ async function acknowledgeAlert(alertId) {
 function updateFloorUI() {
   const talker = floorState;
   const isMe = talker && liveRoom?.localParticipant.identity === talker.identity;
+  if (talker && !isMe) {
+    const text = remoteTranscriptState?.identity === talker.identity ? remoteTranscriptState.text : "";
+    updateLiveTranscript(text || "Listening");
+  } else {
+    clearLiveTranscript();
+  }
   if (talker) {
     transmitCaption.textContent = isMe ? "YOU'RE ON THE AIR" : `${talker.name.toUpperCase()} IS TALKING`;
     transmitCaption.dataset.state = isMe ? "talking" : "busy";
@@ -803,6 +893,10 @@ function startVoiceTranscription() {
   if (!VOICE_TO_TEXT_ENABLED || transcriptionSession) return;
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) return;
+  clearTimeout(liveTranscriptSendTimer);
+  liveTranscriptSendTimer = null;
+  pendingLiveTranscript = null;
+  lastLiveTranscriptSent = "";
 
   const session = {
     code: currentRoom?.code,
@@ -822,18 +916,19 @@ function startVoiceTranscription() {
     session.recognition = recognition;
     recognition.lang = document.documentElement.lang || "en-US";
     recognition.continuous = true;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
+    session.partial = "";
     recognition.onresult = (event) => {
+      session.partial = "";
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
-        if (result.isFinal && result[0]?.transcript) session.parts.push(result[0].transcript.trim());
+        const transcript = result[0]?.transcript?.trim();
+        if (result.isFinal && transcript) session.parts.push(transcript);
+        else if (transcript) session.partial += `${session.partial ? " " : ""}${transcript}`;
       }
+      queueLiveTranscript([...session.parts, session.partial].filter(Boolean).join(" "), session);
     };
-    recognition.onerror = (event) => {
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-        notify("Voice-to-text permission was denied. PTT voice still works.");
-      }
-    };
+    recognition.onerror = () => {};
     recognition.onend = () => {
       if (transcriptionSession !== session) return;
       session.recognition = null;
@@ -852,7 +947,6 @@ function startVoiceTranscription() {
       try { recognition.start(); }
       catch {
         session.recognition = null;
-        if (!session.restarts) notify("Voice-to-text is unavailable here. PTT voice still works.");
       }
     }
   };
@@ -875,6 +969,9 @@ function finishVoiceTranscription(session) {
 
 function stopVoiceTranscription(publish) {
   const session = transcriptionSession;
+  clearTimeout(liveTranscriptSendTimer);
+  liveTranscriptSendTimer = null;
+  pendingLiveTranscript = null;
   if (!session) return;
   session.publish = publish;
   session.stopRequested = true;
@@ -1100,7 +1197,7 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("offline", () => {
   if (!currentRoom) return;
   roomStateHealthy = false;
-  pttButton.disabled = true;
+  setPttUnavailable(true);
   setConnection("error", "OFFLINE");
   pttHint.textContent = "You’re offline. Waiting for a connection…";
   if (transmitHeld || transmitGranted) void releaseTalk(false);
@@ -1109,7 +1206,7 @@ window.addEventListener("online", () => {
   if (!currentRoom) return;
   reconnectWake?.();
   setConnection("connecting", "RECONNECTING");
-  pttButton.disabled = true;
+  setPttUnavailable(true);
   pttHint.textContent = "Network returned. Reconnecting…";
   if (liveRoom?.state === "disconnected") void recoverRoomConnection(liveRoom);
   else void refreshRoomState();
@@ -1120,6 +1217,19 @@ $("#retryMicrophone").addEventListener("click", () => { void prepareMicrophone()
 document.querySelectorAll(".quick-alert-button").forEach((button) => {
   button.addEventListener("click", () => { void sendQuickAlert(button.dataset.alertType); });
 });
+alertVoiceButtons.forEach((button) => {
+  button.addEventListener("click", () => setAlertVoice(button.dataset.alertVoice));
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const next = alertVoiceButtons.find((option) => option !== button);
+    if (next) {
+      setAlertVoice(next.dataset.alertVoice);
+      next.focus();
+    }
+  });
+});
+setAlertVoice(selectedAlertVoice, { persist: false });
 themeToggle.addEventListener("click", () => {
   const open = themeMenu.hidden;
   themeMenu.hidden = !open;
