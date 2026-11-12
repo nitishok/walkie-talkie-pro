@@ -1,3 +1,6 @@
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
 const $ = (selector) => document.querySelector(selector);
 // Set to false to turn off optional browser-based PTT transcription.
 const VOICE_TO_TEXT_ENABLED = true;
@@ -83,6 +86,20 @@ const alertAudioFiles = {
   },
 };
 let alertExpiryTimers = new Map();
+let sharingLocation = false;
+let locationWatchId = null;
+let locationHeartbeat = null;
+let locationSendPromise = null;
+let lastKnownLocation = null;
+let roomLocations = [];
+let locationMap = null;
+let locationMarkers = new Map();
+let lastMapSignature = "";
+let hadSharedLocations = false;
+
+const locationRetentionMs = 90 * 1000;
+const locationHeartbeatMs = 30 * 1000;
+const locationSendIntervalMs = 5 * 1000;
 
 function notify(message) {
   toast.textContent = message;
@@ -217,6 +234,10 @@ function showWelcome(message = "") {
   alertExpiryTimers.clear();
   $("#roomAlertFeed").replaceChildren();
   $("#roomAlertFeed").hidden = true;
+  roomLocations = [];
+  hadSharedLocations = false;
+  setLocationPanelOpen(false);
+  renderRoomLocations([]);
   $("meta[name='theme-color']").content = "#f2f5ef";
   $("#pageNote").hidden = false;
   displayNameInput.value = localStorage.getItem("roadie-name") || "";
@@ -248,6 +269,10 @@ function showRoomShell(roomInfo) {
   alertExpiryTimers.clear();
   $("#roomAlertFeed").replaceChildren();
   $("#roomAlertFeed").hidden = true;
+  roomLocations = [];
+  hadSharedLocations = false;
+  setLocationPanelOpen(false);
+  renderRoomLocations([]);
 }
 
 async function createRoom() {
@@ -628,6 +653,231 @@ function avatarClass(identity) {
   return classes[Math.abs(hash) % classes.length];
 }
 
+function setLocationPanelOpen(open) {
+  const body = $("#locationBody");
+  body.hidden = !open;
+  $("#locationSummary").setAttribute("aria-expanded", String(open));
+  if (open && locationMap) setTimeout(() => locationMap?.invalidateSize(), 120);
+}
+
+function locationAgeText(updatedAt) {
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(updatedAt)) / 1000));
+  if (seconds < 10) return "Updated just now";
+  if (seconds < 60) return `Updated ${seconds}s ago`;
+  return `Updated ${Math.floor(seconds / 60)}m ago`;
+}
+
+function distanceBetween(a, b) {
+  const radians = (degrees) => degrees * Math.PI / 180;
+  const latitudeDelta = radians(b.latitude - a.latitude);
+  const longitudeDelta = radians(b.longitude - a.longitude);
+  const haversine = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(radians(a.latitude)) * Math.cos(radians(b.latitude)) * Math.sin(longitudeDelta / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function distanceText(meters) {
+  if (meters < 1000) return `${Math.max(10, Math.round(meters / 10) * 10)} m from you`;
+  return `${(meters / 1000).toFixed(1)} km from you`;
+}
+
+function createLocationMarkerIcon(point, isLocal) {
+  const pin = document.createElement("span");
+  pin.className = `location-map-pin${isLocal ? " is-local" : ""}`;
+  pin.textContent = (point.name || "?").trim().charAt(0).toUpperCase() || "?";
+  return L.divIcon({ html: pin.outerHTML, className: "location-map-marker", iconSize: [34, 40], iconAnchor: [17, 37] });
+}
+
+function ensureLocationMap() {
+  if (locationMap) return;
+  locationMap = L.map("crewMap", { zoomControl: false, scrollWheelZoom: false, attributionControl: true });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
+  }).addTo(locationMap);
+  L.control.zoom({ position: "topright" }).addTo(locationMap);
+}
+
+function updateLocationMap(points) {
+  const mapElement = $("#crewMap");
+  mapElement.hidden = points.length === 0;
+  if (!points.length) {
+    for (const marker of locationMarkers.values()) marker.remove();
+    locationMarkers.clear();
+    lastMapSignature = "";
+    return;
+  }
+
+  ensureLocationMap();
+  const localIdentity = liveRoom?.localParticipant.identity;
+  const localPoint = points.find((point) => point.identity === localIdentity);
+  const presentIdentities = new Set(points.map((point) => point.identity));
+  for (const [identity, marker] of locationMarkers) {
+    if (!presentIdentities.has(identity)) {
+      marker.remove();
+      locationMarkers.delete(identity);
+    }
+  }
+
+  for (const point of points) {
+    const isLocal = point.identity === localIdentity;
+    let marker = locationMarkers.get(point.identity);
+    if (!marker) {
+      marker = L.marker([point.latitude, point.longitude], { icon: createLocationMarkerIcon(point, isLocal) }).addTo(locationMap);
+      const label = document.createElement("span");
+      label.textContent = isLocal ? `${point.name} · You` : point.name;
+      marker.bindTooltip(label, { permanent: true, direction: "top", offset: [0, -25], className: "location-map-label" });
+      locationMarkers.set(point.identity, marker);
+    } else {
+      marker.setLatLng([point.latitude, point.longitude]);
+      marker.setIcon(createLocationMarkerIcon(point, isLocal));
+      const label = document.createElement("span");
+      label.textContent = isLocal ? `${point.name} · You` : point.name;
+      marker.setTooltipContent(label);
+    }
+  }
+
+  const signature = points.map((point) => `${point.identity}:${point.latitude}:${point.longitude}`).sort().join("|");
+  if (signature !== lastMapSignature) {
+    if (points.length === 1) {
+      const currentZoom = locationMap.getZoom();
+      locationMap.setView([points[0].latitude, points[0].longitude], Number.isFinite(currentZoom) ? Math.max(currentZoom, 14) : 14);
+    }
+    else locationMap.fitBounds(L.latLngBounds(points.map((point) => [point.latitude, point.longitude])).pad(0.24), { maxZoom: 15 });
+    lastMapSignature = signature;
+  }
+  setTimeout(() => locationMap?.invalidateSize(), 100);
+}
+
+function renderRoomLocations(points) {
+  roomLocations = Array.isArray(points) ? points : [];
+  const localIdentity = liveRoom?.localParticipant.identity;
+  const localPoint = roomLocations.find((point) => point.identity === localIdentity);
+  const count = roomLocations.length;
+  $("#locationCount").textContent = count === 0 ? "No one sharing" : `${count} ${count === 1 ? "member" : "members"} sharing`;
+  $("#locationEmpty").hidden = count > 0;
+  $("#locationList").hidden = count === 0;
+  $("#locationShareButton").textContent = sharingLocation ? "Stop sharing" : "Share my location";
+  $("#locationShareButton").setAttribute("aria-pressed", String(sharingLocation));
+  $("#locationStatus").textContent = sharingLocation
+    ? (localPoint ? "Sharing live location" : "Finding your location…")
+    : "Off";
+
+  if (count > 0 && !hadSharedLocations) setLocationPanelOpen(true);
+  if (count === 0 && hadSharedLocations) setLocationPanelOpen(false);
+  hadSharedLocations = count > 0;
+
+  const list = $("#locationList");
+  const rows = roomLocations.map((point) => {
+    const isLocal = point.identity === localIdentity;
+    const item = document.createElement("li");
+    const avatar = document.createElement("span");
+    avatar.className = `location-list-pin${isLocal ? " is-local" : ""}`;
+    avatar.textContent = (point.name || "?").trim().charAt(0).toUpperCase() || "?";
+    const copy = document.createElement("span");
+    copy.className = "location-list-copy";
+    const name = document.createElement("strong");
+    name.textContent = isLocal ? `${point.name} · You` : point.name;
+    const age = document.createElement("small");
+    const distance = localPoint && !isLocal ? `${distanceText(distanceBetween(localPoint, point))} · ` : "";
+    age.textContent = `${distance}${locationAgeText(point.updatedAt)}`;
+    copy.append(name, age);
+    item.append(avatar, copy);
+    return item;
+  });
+  list.replaceChildren(...rows);
+  updateLocationMap(roomLocations);
+}
+
+function sendLocationUpdate() {
+  if (!sharingLocation || !lastKnownLocation || !currentRoom || !sessionToken) return Promise.resolve();
+  if (locationSendPromise) return locationSendPromise;
+  const now = Date.now();
+  if (now - lastKnownLocation.sentAt < locationSendIntervalMs) return Promise.resolve();
+  lastKnownLocation.sentAt = now;
+  const code = currentRoom.code;
+  const token = sessionToken;
+  locationSendPromise = request(`/api/rooms/${encodeURIComponent(code)}/location`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify(lastKnownLocation.coords),
+  }).catch((error) => {
+    if (error.status === 404) {
+      void stopLocationSharing({ notifyUser: false });
+      return;
+    }
+    $("#locationStatus").textContent = "Waiting to update…";
+  }).finally(() => {
+    locationSendPromise = null;
+  });
+  return locationSendPromise;
+}
+
+async function startLocationSharing() {
+  if (!navigator.geolocation || !window.isSecureContext) {
+    $("#locationStatus").textContent = "Location needs a secure browser connection";
+    notify("Location sharing needs HTTPS or localhost.");
+    return;
+  }
+  if (!currentRoom || !sessionToken) return;
+  sharingLocation = true;
+  lastKnownLocation = null;
+  $("#locationShareButton").disabled = false;
+  $("#locationShareButton").textContent = "Stop sharing";
+  $("#locationShareButton").setAttribute("aria-pressed", "true");
+  $("#locationStatus").textContent = "Finding your location…";
+  try {
+    locationWatchId = navigator.geolocation.watchPosition((position) => {
+      if (!sharingLocation) return;
+      lastKnownLocation = {
+        coords: {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        },
+        sentAt: lastKnownLocation?.sentAt || 0,
+      };
+      void sendLocationUpdate();
+    }, (error) => {
+      if (!sharingLocation) return;
+      const message = error.code === error.PERMISSION_DENIED
+        ? "Location permission was denied. Enable it in browser settings to share."
+        : "Could not get your location. Check your device location settings.";
+      $("#locationStatus").textContent = "Location unavailable";
+      if (error.code === error.PERMISSION_DENIED) void stopLocationSharing({ notifyUser: true, message });
+    }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+    clearInterval(locationHeartbeat);
+    locationHeartbeat = setInterval(() => { void sendLocationUpdate(); }, locationHeartbeatMs);
+    setLocationPanelOpen(true);
+  } catch {
+    sharingLocation = false;
+    $("#locationStatus").textContent = "Location unavailable";
+    notify("Could not start location sharing on this device.");
+    renderRoomLocations(roomLocations);
+  }
+}
+
+async function stopLocationSharing({ notifyUser = false, message = "Location sharing stopped." } = {}) {
+  const wasSharing = sharingLocation || locationWatchId !== null;
+  const code = currentRoom?.code;
+  const token = sessionToken;
+  sharingLocation = false;
+  if (locationWatchId !== null) navigator.geolocation?.clearWatch(locationWatchId);
+  locationWatchId = null;
+  clearInterval(locationHeartbeat);
+  locationHeartbeat = null;
+  lastKnownLocation = null;
+  if (locationSendPromise) await locationSendPromise;
+  if (wasSharing && code && token) {
+    await request(`/api/rooms/${encodeURIComponent(code)}/location`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  }
+  renderRoomLocations(roomLocations.filter((point) => point.identity !== liveRoom?.localParticipant.identity));
+  if (notifyUser && message) notify(message);
+}
+
 async function refreshRoomState() {
   if (!currentRoom || !sessionToken || stateRequestInFlight) return false;
   const roomCode = currentRoom.code;
@@ -644,6 +894,7 @@ async function refreshRoomState() {
     floorState = data.talker;
     remoteTranscriptState = data.liveTranscript || null;
     updateRoomAlerts(data.alerts || []);
+    renderRoomLocations(data.locations || []);
     updateFloorUI();
     renderCrew();
     if (liveRoom?.state === "connected" && !suppressReconnect) {
@@ -1068,6 +1319,7 @@ async function releaseTalk(showClear = true) {
 async function leaveRoom() {
   suppressReconnect = true;
   reconnectWake?.();
+  await stopLocationSharing({ notifyUser: false });
   await releaseTalk(false);
   clearInterval(statePoll);
   statePoll = null;
@@ -1087,6 +1339,7 @@ async function leaveRoom() {
 async function finishRoomLocally(message) {
   suppressReconnect = true;
   reconnectWake?.();
+  await stopLocationSharing({ notifyUser: false });
   await releaseTalk(false);
   clearInterval(statePoll);
   statePoll = null;
@@ -1189,6 +1442,7 @@ document.addEventListener("visibilitychange", () => {
     void releaseTalk();
     liveMessage.textContent = "Talk stopped while the app is in the background.";
   } else if (!document.hidden && currentRoom) {
+    if (sharingLocation) void sendLocationUpdate();
     if (liveRoom?.state === "disconnected") void recoverRoomConnection(liveRoom);
     else void refreshRoomState();
   }
@@ -1208,6 +1462,7 @@ window.addEventListener("online", () => {
   setConnection("connecting", "RECONNECTING");
   setPttUnavailable(true);
   pttHint.textContent = "Network returned. Reconnecting…";
+  if (sharingLocation) void sendLocationUpdate();
   if (liveRoom?.state === "disconnected") void recoverRoomConnection(liveRoom);
   else void refreshRoomState();
 });
@@ -1216,6 +1471,13 @@ document.addEventListener("pointerdown", unlockAlertAudio, { once: true, capture
 $("#retryMicrophone").addEventListener("click", () => { void prepareMicrophone(); });
 document.querySelectorAll(".quick-alert-button").forEach((button) => {
   button.addEventListener("click", () => { void sendQuickAlert(button.dataset.alertType); });
+});
+$("#locationSummary").addEventListener("click", () => {
+  setLocationPanelOpen($("#locationBody").hidden);
+});
+$("#locationShareButton").addEventListener("click", () => {
+  if (sharingLocation) void stopLocationSharing({ notifyUser: false });
+  else void startLocationSharing();
 });
 alertVoiceButtons.forEach((button) => {
   button.addEventListener("click", () => setAlertVoice(button.dataset.alertVoice));

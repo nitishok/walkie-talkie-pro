@@ -22,6 +22,7 @@ Open [http://localhost:4173](http://localhost:4173) on the Mac. From a phone on 
 - A server-side talk lock allows one person to transmit at a time. Other guests see who has the channel.
 - The microphone is requested when a person enters a room. It stays muted until they hold Talk.
 - Each member can choose a male or female spoken voice for the quick alerts they send. The choice is saved in that browser and travels with each alert.
+- Members can optionally share their live location with the room. Location sharing is off by default; coordinates are held in server memory and expire 90 seconds after the last update. The map uses OpenStreetMap tiles and needs internet access.
 
 Installing the certificate adds trust for certificates signed by this Mac's local development CA. The CA's private key remains on the Mac. Remove the certificate profile from the phone when LAN development is done. The web app requires the page to remain open for reliable audio; background listening is not guaranteed on mobile browsers. Local development uses LiveKit's dev key only; deployment requires a public LiveKit server address and private API/session secrets.
 

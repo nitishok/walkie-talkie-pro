@@ -119,6 +119,23 @@
           <ul class="crew-list" id="crewList" aria-label="Friends in the room"></ul>
           <div class="room-footer"><span id="roomSafety">Keep your eyes on the road. Let your co-pilot handle the radio.</span><button id="endRoomButton">End room for everyone</button></div>
         </div>
+        <section class="location-panel" id="locationPanel" aria-labelledby="locationTitle">
+          <button class="location-summary" id="locationSummary" type="button" aria-expanded="false" aria-controls="locationBody">
+            <span class="location-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
+            <span class="location-summary-copy"><strong id="locationTitle">Crew locations</strong><small id="locationCount">No one sharing</small></span>
+            <svg class="location-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5"/></svg>
+          </button>
+          <div class="location-body" id="locationBody" hidden>
+            <p class="location-privacy">Your live location is visible to everyone in this room while sharing is on. Turn it off any time; stale locations disappear after 90 seconds and coordinates are not saved to disk.</p>
+            <div class="location-controls">
+              <button class="location-share-button" id="locationShareButton" type="button" aria-pressed="false">Share my location</button>
+              <span class="location-status" id="locationStatus">Off</span>
+            </div>
+            <div class="location-empty" id="locationEmpty">No crew locations are being shared. Turn on sharing to appear on the map.</div>
+            <div class="crew-map" id="crewMap" role="application" aria-label="Map of crew members sharing their location" hidden></div>
+            <ul class="location-list" id="locationList" aria-label="Crew location updates" hidden></ul>
+          </div>
+        </section>
         <div class="leave-room-row"><button class="leave-room-button" id="leaveRoomButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5m5 5H3"/><path d="M13 4h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/></svg><span>Leave Room</span></button></div>
       </section>
 

@@ -55,6 +55,8 @@ function loadStore() {
 
 const store = loadStore();
 const liveTranscripts = new Map();
+const roomLocations = new Map();
+const locationRetentionMs = 90 * 1000;
 
 function saveStore() {
   const tempPath = `${storePath}.${process.pid}.tmp`;
@@ -202,6 +204,34 @@ function getRoomAlerts(room) {
   return room.alerts;
 }
 
+function getRoomLocations(room) {
+  const locations = roomLocations.get(room.code);
+  if (!locations) return [];
+  const cutoff = Date.now() - locationRetentionMs;
+  for (const [identity, point] of locations) {
+    if (point.updatedAt < cutoff) locations.delete(identity);
+  }
+  if (!locations.size) {
+    roomLocations.delete(room.code);
+    return [];
+  }
+  return [...locations.values()].map((point) => ({
+    ...point,
+    updatedAt: new Date(point.updatedAt).toISOString(),
+  }));
+}
+
+const locationCleanupTimer = setInterval(() => {
+  const cutoff = Date.now() - locationRetentionMs;
+  for (const [code, locations] of roomLocations) {
+    for (const [identity, point] of locations) {
+      if (point.updatedAt < cutoff) locations.delete(identity);
+    }
+    if (!locations.size) roomLocations.delete(code);
+  }
+}, 30 * 1000);
+locationCleanupTimer.unref?.();
+
 async function handle(req, res) {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   if (req.method === "GET" && url.pathname === "/api/health") {
@@ -221,7 +251,7 @@ async function handle(req, res) {
     catch (error) { room.ended = true; saveStore(); throw error; }
   }
 
-  const roomRoute = url.pathname.match(/^\/api\/rooms\/([^/]+)(?:\/(join|state|talk|transcript|alerts)(?:\/([^/]+))?)?$/);
+  const roomRoute = url.pathname.match(/^\/api\/rooms\/([^/]+)(?:\/(join|state|talk|transcript|alerts|location)(?:\/([^/]+))?)?$/);
   if (!roomRoute) return send(res, 404, { error: "Not found." });
   const code = normalizeCode(decodeURIComponent(roomRoute[1]));
   const action = roomRoute[2] || "";
@@ -247,7 +277,45 @@ async function handle(req, res) {
       ? transcript
       : null;
     if (!liveTranscript && transcript) liveTranscripts.delete(code);
-    return send(res, 200, { ended: room.ended, talker, liveTranscript, alerts: getRoomAlerts(room) });
+    return send(res, 200, { ended: room.ended, talker, liveTranscript, alerts: getRoomAlerts(room), locations: getRoomLocations(room) });
+  }
+
+  if (req.method === "POST" && action === "location") {
+    const session = readSessionToken(req, code);
+    const activeRoom = requireRoom(code);
+    const body = await readBody(req);
+    const latitude = Number(body.latitude);
+    const longitude = Number(body.longitude);
+    const accuracy = Number(body.accuracy);
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      throw Object.assign(new Error("Send a valid location."), { status: 400 });
+    }
+    let locations = roomLocations.get(activeRoom.code);
+    if (!locations) {
+      locations = new Map();
+      roomLocations.set(activeRoom.code, locations);
+    }
+    const previous = locations.get(session.identity);
+    if (previous && Date.now() - previous.updatedAt < 3000) {
+      throw Object.assign(new Error("Location updates are arriving too quickly."), { status: 429 });
+    }
+    locations.set(session.identity, {
+      identity: session.identity,
+      name: session.name,
+      latitude: Math.round(latitude * 100000) / 100000,
+      longitude: Math.round(longitude * 100000) / 100000,
+      accuracy: Number.isFinite(accuracy) ? Math.max(0, Math.min(5000, Math.round(accuracy))) : null,
+      updatedAt: Date.now(),
+    });
+    return send(res, 200, { ok: true });
+  }
+
+  if (req.method === "DELETE" && action === "location") {
+    const session = readSessionToken(req, code);
+    const locations = roomLocations.get(code);
+    locations?.delete(session.identity);
+    if (locations && !locations.size) roomLocations.delete(code);
+    return send(res, 200, { stopped: true });
   }
 
   if (req.method === "POST" && action === "transcript") {
@@ -342,6 +410,7 @@ async function handle(req, res) {
     activeRoom.talker = null;
     liveTranscripts.delete(code);
     activeRoom.endedAt = new Date().toISOString();
+    roomLocations.delete(code);
     saveStore();
     try { await roomService.deleteRoom(`roadie-${code}`); } catch { /* no LiveKit room may exist yet */ }
     return send(res, 200, { ended: true, endedBy: session.name });
